@@ -1,0 +1,97 @@
+#!/usr/bin/env python
+"""Converts strings with geo tags to goals, calling get_plan service.
+"""
+import utm
+import numpy as np
+
+import rospy
+from geometry_msgs.msg import Point, PoseStamped
+from nav_msgs.srv import GetPlan
+from std_msgs.msg import String
+
+
+def string_to_latlon(s):
+    # geo:48.8016394,16.8011145
+    tag, latlon = s.split(':')
+    # assert tag == "geo"
+    lat, lon = latlon.split(',')
+    lat = float(lat)
+    lon = float(lon)
+    return lat, lon
+
+
+def latlon_to_utm(lat, lon, zone=None, band=None):
+    easting, northing, zone, band = utm.from_latlon(lat, lon, zone, band)
+    return easting, northing, zone, band
+
+
+class StartSearch(object):
+
+    def __init__(self):
+        self.utm_frame = rospy.get_param("~utm_frame", "utm")
+        self.utm_zone = rospy.get_param("~utm_zone", 33)
+        self.utm_band = rospy.get_param("~utm_band", 'U')
+        self.utm_z = rospy.get_param("~utm_z", 0.0)
+        self.target_frame = rospy.get_param("~target_frame", "local_utm")
+        self.tolerance = rospy.get_param("~tolerance", 32.)
+        
+        rospy.loginfo(f"Fixed UTM zone: {self.utm_zone}{self.utm_band}")
+
+        self.dest = "geo:50.0778,14.4181"
+
+        self.get_plan = None
+        self.wait_for_service()
+
+    def wait_for_service(self):
+        if self.get_plan is not None:
+            return
+        rospy.wait_for_service("get_plan")
+        self.get_plan = rospy.ServiceProxy("get_plan", GetPlan)
+        rospy.logwarn(f"Using service: {rospy.resolve_name("get_plan")}")
+
+    def start_get_plan(self):
+
+        self.wait_for_service()
+
+        rospy.loginfo(f"String goal: {self.dest}")
+        lat, lon = string_to_latlon(self.dest)
+        easting, northing, zone, band = latlon_to_utm(lat, lon, self.utm_zone, self.utm_band)
+        rospy.loginfo("UTM goal (%i%s, %s): (%.6f, %.6f)",
+                      zone, band, self.utm_frame, easting, northing)
+        utm_point = np.array([easting, northing, self.utm_z]).reshape(3, 1)
+
+        # Create goal pose, with arbitrary orientation.
+        goal = PoseStamped()
+        goal.header.frame_id = self.target_frame
+        goal.header.stamp = rospy.Time.now()
+        goal.pose.position = Point(*utm_point.flatten())
+        goal.pose.orientation.w = 1.0
+
+        # Start from the current robot position by using NaNs.
+        start = PoseStamped()
+        start.header.frame_id = self.target_frame
+        start.header.stamp = rospy.Time.now()
+        start.pose.position = Point(float("nan"), float("nan"), float("nan"))
+        start.pose.orientation.w = 1.0
+
+        try:
+            res = self.get_plan(start, goal, self.tolerance)
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {e}")
+            self.get_plan = None
+            return
+
+        if len(res.plan.poses) == 0:
+            rospy.logwarn(f"No plan found.")
+            return
+
+
+def main():
+    rospy.init_node("start_search")
+    node = StartSearch()
+    node.start_get_plan()
+    rospy.spin()
+
+
+if __name__ == "__main__":
+    main()

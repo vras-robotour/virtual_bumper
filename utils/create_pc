@@ -1,0 +1,51 @@
+#!/usr/bin/env python
+"""Creates point cloud filled with ones
+"""
+
+import numpy as np
+
+import rospy
+from sensor_msgs.msg import PointCloud2, PointField
+
+
+class CreatePC(object):
+
+    def __init__(self):
+
+        self.pc = PointCloud2()
+        self.create_point_cloud()
+        self.fill_point_cloud()
+        self.pc_pub = rospy.Publisher("/camera/color/geometric_traversability", PointCloud2, queue_size=1, latch=True)
+        self.timer = rospy.Timer(rospy.Duration(10), self.publish_pc)
+
+    def create_point_cloud(self):
+        self.pc.header.stamp = rospy.Time.now()
+        self.pc.header.frame_id = "map"
+        self.pc.height = 1
+        self.pc.width = 1000
+        self.pc.fields = [
+            PointField('x', 0, PointField.FLOAT32, 1),
+            PointField('y', 4, PointField.FLOAT32, 1),
+            PointField('z', 8, PointField.FLOAT32, 1),
+        ]
+        self.pc.is_bigendian = False
+        self.pc.point_step = 12  
+        self.pc.row_step = self.pc.point_step * self.pc.width
+        self.pc.is_dense = True
+    
+    def fill_point_cloud(self):
+        self.pc.data = np.ones((self.pc.width, 3), dtype=np.float32).tobytes()
+
+    def publish_pc(self, event):
+        self.pc.header.stamp = rospy.Time.now()
+        self.pc_pub.publish(self.pc)  
+
+
+def main():
+    rospy.init_node("create_pc")
+    node = CreatePC()
+    rospy.spin()
+
+
+if __name__ == "__main__":
+    main()
