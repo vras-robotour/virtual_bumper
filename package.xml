@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package format="3">
+  <name>virtual_bumper</name>
+  <version>1.0.0</version>
+  <description>Virtual bumper preventing robot from hitting obstacles.</description>
+  <url type="website">https://github.com/vras-robotour/virtual_bumper</url>
+
+  <author email="tpetricek@gmail.com">Tomas Petricek</author>
+  <author email="lehkysim@fel.cvut.cz">Simon Lehky</author>
+  <maintainer email="lehkysim@fel.cvut.cz">Simon Lehky</maintainer>
+
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <exec_depend condition="$ROS_DISTRO != noetic">python-numpy</exec_depend>
+
+  <exec_depend condition="$ROS_DISTRO == noetic">python3-numpy</exec_depend>
+
+</package>
