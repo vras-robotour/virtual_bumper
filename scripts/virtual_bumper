@@ -9,8 +9,10 @@ import rospy
 from std_msgs.msg import ColorRGBA
 from ros_numpy import msgify, numpify
 from sensor_msgs.msg import PointCloud2
-from geometry_msgs.msg import (Twist, Vector3)
+from geometry_msgs.msg import Twist, Vector3
+from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
+from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 
 np.set_printoptions(precision=2)
 
@@ -31,6 +33,9 @@ class VirtualBumper(object):
         self.i_cloud = 0
         self.blocked = False
 
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer)
+
         self.cmd_pub = rospy.Publisher('output_cmd_vel', Twist, queue_size=2)
         self.cloud_pub = rospy.Publisher('obstacle_cloud', PointCloud2, queue_size=2)
         self.markers_pub = rospy.Publisher('~markers', MarkerArray, queue_size=2)
@@ -38,8 +43,15 @@ class VirtualBumper(object):
         self.cmd_sub = rospy.Subscriber('input_cmd_vel', Twist, self.receive_cmd, queue_size=2)
         self.cloud_sub = rospy.Subscriber('input_cloud', PointCloud2, self.receive_cloud, queue_size=2)
 
+    def transform_cloud(self, msg):
+        transform = self.tf_buffer.lookup_transform(self.robot_frame, msg.header.frame_id, rospy.Time(0))
+        msg = do_transform_cloud(msg, transform)
+        return msg
+
     def receive_cloud(self, msg):
         t = timer()
+        if msg.header.frame_id != self.robot_frame:
+            msg = self.transform_cloud(msg)
         assert isinstance(msg, PointCloud2)
         assert msg.header.frame_id == self.robot_frame
 
