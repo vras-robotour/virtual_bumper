@@ -45,8 +45,9 @@ class VirtualBumper(object):
 
     def transform_cloud(self, msg):
         transform = self.tf_buffer.lookup_transform(self.robot_frame, msg.header.frame_id, rospy.Time(0))
-        msg = do_transform_cloud(msg, transform)
-        return msg
+        msg_out = do_transform_cloud(msg, transform)
+        msg_out.header.stamp = msg.header.stamp
+        return msg_out
 
     def receive_cloud(self, msg):
         t = timer()
@@ -56,7 +57,7 @@ class VirtualBumper(object):
         assert msg.header.frame_id == self.robot_frame
 
         age = (rospy.Time.now() - msg.header.stamp).to_sec()
-        if age > self.max_age:
+        if False and age > self.max_age:
             rospy.logwarn('Discarding cloud %.1f s > %.1f s old.', age, self.max_age)
             return
 
