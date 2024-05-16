@@ -39,8 +39,8 @@
 
         <!-- Parameters -->
         <!-- ctu-robot -->
-        <param name="robot_length" value=0.8 if="$(eval robot == 'ctu-robot')"/>
-        <param name="robot_width" value=0.7 if="$(eval robot == 'ctu-robot')"/>
+        <param name="robot_length" type="double" value="0.8" if="$(eval robot == 'ctu-robot')"/>
+        <param name="robot_width" type="double" value="0.7" if="$(eval robot == 'ctu-robot')"/>
         <!-- flip -->
         <param name="robot_length" value="TODO" if="$(eval robot == 'flip')"/>
         <param name="robot_width" value="TODO" if="$(eval robot == 'flip')"/>
