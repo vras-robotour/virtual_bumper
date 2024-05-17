@@ -28,6 +28,9 @@ class VirtualBumper(object):
         self.min_points_obstacle = rospy.get_param('~min_points_obstacle', 1)
         self.keep_clouds = int(rospy.get_param('~keep_clouds', 1))
 
+        self.robot_length = rospy.get_param('~robot_length', 0.8)
+        self.robot_width = rospy.get_param('~robot_width', 0.6) 
+
         self.cloud_lock = RLock()
         self.clouds = [None] * self.keep_clouds
         self.i_cloud = 0
@@ -49,10 +52,16 @@ class VirtualBumper(object):
         msg_out.header.stamp = msg.header.stamp
         return msg_out
 
+    def filter_cloud(self, cloud):
+        filtered_cloud = np.array([pt for pt in cloud 
+                if not (abs(pt[0]) < self.robot_length/2 and abs(pt[1]) < self.robot_width/2)])
+        return filtered_cloud
+
     def receive_cloud(self, msg):
         t = timer()
         if msg.header.frame_id != self.robot_frame:
             msg = self.transform_cloud(msg)
+        
         assert isinstance(msg, PointCloud2)
         assert msg.header.frame_id == self.robot_frame
 
@@ -62,7 +71,9 @@ class VirtualBumper(object):
             return
 
         cloud = numpify(msg).ravel()
-        
+        if cloud is not None:
+            cloud = self.filter_cloud(cloud)
+
         with self.cloud_lock:
             i = self.i_cloud % self.keep_clouds
             self.clouds[i] = cloud
@@ -134,7 +145,7 @@ class VirtualBumper(object):
         self.markers_pub.publish(msg)
         t = timer() - t
         rospy.logdebug(f'Publish clearance: {t:.3f} s.')
-    
+
     def publish_obstacle_cloud(self, cloud):
         t = timer()
         cloud = msgify(PointCloud2, cloud)
