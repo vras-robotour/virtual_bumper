@@ -14,8 +14,8 @@
     <arg name="obstacle_cloud" value="TODO" if="$(eval robot == 'flip')"/>
     <arg name="markers" value="markers" if="$(eval robot == 'flip')"/>
     <!-- marv-robot -->
-    <arg name="in_cmd_vel" value="cmd_vel" if="$(eval robot == 'marv-robot')"/>
-    <arg name="clouds_filtered" value="points_filtered" if="$(eval robot == 'marv-robot')"/>
+    <arg name="in_cmd_vel" value="marv/cartesian_controller/cmd_vel" if="$(eval robot == 'marv-robot')"/>
+    <arg name="clouds_filtered" value="points_filtered_jetson" if="$(eval robot == 'marv-robot')"/>
     <arg name="out_cmd_vel" value="cmd_vel_bumper" if="$(eval robot == 'marv-robot')"/>
     <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'marv-robot')"/>
     <arg name="markers" value="markers" if="$(eval robot == 'marv-robot')"/>
