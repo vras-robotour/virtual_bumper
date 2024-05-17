@@ -14,16 +14,16 @@
     <arg name="obstacle_cloud" value="TODO" if="$(eval robot == 'flip')"/>
     <arg name="markers" value="markers" if="$(eval robot == 'flip')"/>
     <!-- marv-robot -->
-    <arg name="in_cmd_vel" value="TODO" if="$(eval robot == 'marv-robot')"/>
-    <arg name="clouds_filtered" value="TODO" if="$(eval robot == 'marv-robot')"/>
-    <arg name="out_cmd_vel" value="TODO" if="$(eval robot == 'marv-robot')"/>
-    <arg name="obstacle_cloud" value="TODO" if="$(eval robot == 'marv-robot')"/>
+    <arg name="in_cmd_vel" value="cmd_vel" if="$(eval robot == 'marv-robot')"/>
+    <arg name="clouds_filtered" value="points_filtered" if="$(eval robot == 'marv-robot')"/>
+    <arg name="out_cmd_vel" value="cmd_vel_bumper" if="$(eval robot == 'marv-robot')"/>
+    <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'marv-robot')"/>
     <arg name="markers" value="markers" if="$(eval robot == 'marv-robot')"/>
     <!-- spot-3 -->
-    <arg name="in_cmd_vel" value="TODO" if="$(eval robot == 'spot-3')"/>
-    <arg name="clouds_filtered" value="TODO" if="$(eval robot == 'spot-3')"/>
-    <arg name="out_cmd_vel" value="TODO" if="$(eval robot == 'spot-3')"/>
-    <arg name="obstacle_cloud" value="TODO" if="$(eval robot == 'spot-3')"/>
+    <arg name="in_cmd_vel" value="spot/cmd_vel" if="$(eval robot == 'spot-3')"/>
+    <arg name="clouds_filtered" value="points_filtered" if="$(eval robot == 'spot-3')"/>
+    <arg name="out_cmd_vel" value="cmd_vel_bumper" if="$(eval robot == 'spot-3')"/>
+    <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'spot-3')"/>
     <arg name="markers" value="markers" if="$(eval robot == 'spot-3')"/>
 
     <node name="virtual_bumper" pkg="virtual_bumper" type="virtual_bumper" 
@@ -40,16 +40,16 @@
         <!-- Parameters -->
         <!-- ctu-robot -->
         <param name="robot_length" type="double" value="0.8" if="$(eval robot == 'ctu-robot')"/>
-        <param name="robot_width" type="double" value="0.7" if="$(eval robot == 'ctu-robot')"/>
+        <param name="robot_width"  type="double" value="0.7" if="$(eval robot == 'ctu-robot')"/>
         <!-- flip -->
-        <param name="robot_length" value="TODO" if="$(eval robot == 'flip')"/>
-        <param name="robot_width" value="TODO" if="$(eval robot == 'flip')"/>
+        <param name="robot_length" type="double" value="0.0" if="$(eval robot == 'flip')"/>
+        <param name="robot_width"  type="double" value="0.0" if="$(eval robot == 'flip')"/>
         <!-- marv-robot -->
-        <param name="robot_length" value="TODO" if="$(eval robot == 'marv-robot')"/>
-        <param name="robot_width" value="TODO" if="$(eval robot == 'marv-robot')"/>
+        <param name="robot_length" type="double" value="0.8" if="$(eval robot == 'marv-robot')"/>
+        <param name="robot_width"  type="double" value="0.6" if="$(eval robot == 'marv-robot')"/>
         <!-- spot-3 -->
-        <param name="robot_length" value="TODO" if="$(eval robot == 'spot-3')"/>
-        <param name="robot_width" value="TODO" if="$(eval robot == 'spot-3')"/>
+        <param name="robot_length" type="double" value="0.9" if="$(eval robot == 'spot-3')"/>
+        <param name="robot_width"  type="double" value="0.5" if="$(eval robot == 'spot-3')"/>
 
         <!-- Inputs -->
         <remap from="input_cmd_vel" to="$(arg in_cmd_vel)"/>
