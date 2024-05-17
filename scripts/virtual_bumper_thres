@@ -9,7 +9,7 @@ import rospy
 from std_msgs.msg import ColorRGBA
 from ros_numpy import msgify, numpify
 from sensor_msgs.msg import PointCloud2
-from geometry_msgs.msg import Twist, Vector3
+from geometry_msgs.msg import Twist, Vector3, Point
 from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
@@ -28,6 +28,7 @@ class VirtualBumper(object):
         self.min_points_obstacle = rospy.get_param('~min_points_obstacle', 1)
         self.keep_clouds = int(rospy.get_param('~keep_clouds', 1))
 
+        self.min_points_obstacle = rospy.get_param('~min_points_obstacle', 20)
         self.robot_length = rospy.get_param('~robot_length', 0.8)
         self.robot_width = rospy.get_param('~robot_width', 0.6) 
 
@@ -54,8 +55,8 @@ class VirtualBumper(object):
         return msg_out
 
     def filter_cloud(self, cloud):
-        filtered_cloud = np.array([pt for pt in cloud 
-                if not (abs(pt[0]) < self.robot_length/2 and abs(pt[1]) < self.robot_width/2)])
+        mask = ~((np.abs(cloud['x']) < self.robot_length / 2) & (np.abs(cloud['y']) < self.robot_width / 2))
+        filtered_cloud = cloud[mask]
         return filtered_cloud
 
     def receive_cloud(self, msg):
@@ -147,7 +148,7 @@ class VirtualBumper(object):
         centroids = []
 
         # Clustering using distance threshold.
-        threshold = 0.4
+        threshold = 0.35
         while points.size > 0:
             current_cluster = [points[0]]
             points = np.delete(points, 0, 0)
@@ -158,8 +159,9 @@ class VirtualBumper(object):
                     points = np.delete(points, i, 0)
                 else:
                     i += 1
-            centroid = np.mean(current_cluster, axis=0)
-            centroids.append(centroid)
+            if len(current_cluster) > self.min_points_obstacle:
+                centroid = np.mean(current_cluster, axis=0)
+                centroids.append(centroid)
 
         return centroids
 

@@ -4,11 +4,12 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 from threading import RLock
 from timeit import default_timer as timer
+from sklearn.cluster import DBSCAN
 
 import rospy
 from std_msgs.msg import ColorRGBA
 from ros_numpy import msgify, numpify
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, PointField
 from geometry_msgs.msg import Twist, Vector3
 from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
@@ -28,9 +29,6 @@ class VirtualBumper(object):
         self.min_points_obstacle = rospy.get_param('~min_points_obstacle', 1)
         self.keep_clouds = int(rospy.get_param('~keep_clouds', 1))
 
-        self.robot_length = rospy.get_param('~robot_length', 0.8)
-        self.robot_width = rospy.get_param('~robot_width', 0.6) 
-
         self.cloud_lock = RLock()
         self.clouds = [None] * self.keep_clouds
         self.i_cloud = 0
@@ -42,6 +40,7 @@ class VirtualBumper(object):
         self.cmd_pub = rospy.Publisher('output_cmd_vel', Twist, queue_size=2)
         self.cloud_pub = rospy.Publisher('obstacle_cloud', PointCloud2, queue_size=2)
         self.markers_pub = rospy.Publisher('~markers', MarkerArray, queue_size=2)
+        self.centroid_pub = rospy.Publisher('obstacle_centroids', PointCloud2, queue_size=2)
 
         self.cmd_sub = rospy.Subscriber('input_cmd_vel', Twist, self.receive_cmd, queue_size=2)
         self.cloud_sub = rospy.Subscriber('input_cloud', PointCloud2, self.receive_cloud, queue_size=2)
@@ -52,16 +51,10 @@ class VirtualBumper(object):
         msg_out.header.stamp = msg.header.stamp
         return msg_out
 
-    def filter_cloud(self, cloud):
-        filtered_cloud = np.array([pt for pt in cloud 
-                if not (abs(pt[0]) < self.robot_length/2 and abs(pt[1]) < self.robot_width/2)])
-        return filtered_cloud
-
     def receive_cloud(self, msg):
         t = timer()
         if msg.header.frame_id != self.robot_frame:
             msg = self.transform_cloud(msg)
-        
         assert isinstance(msg, PointCloud2)
         assert msg.header.frame_id == self.robot_frame
 
@@ -71,9 +64,7 @@ class VirtualBumper(object):
             return
 
         cloud = numpify(msg).ravel()
-        if cloud is not None:
-            cloud = self.filter_cloud(cloud)
-
+        
         with self.cloud_lock:
             i = self.i_cloud % self.keep_clouds
             self.clouds[i] = cloud
@@ -105,6 +96,52 @@ class VirtualBumper(object):
         
         obstacle_cloud = np.concatenate(obstacle_clouds)
         return obstacle_cloud
+
+    def compute_centroids(self, cloud):
+        if len(cloud) == 0:
+            return np.array([])
+
+        # Extract x, y, z coordinates
+        points = np.vstack((cloud['x'], cloud['y'], cloud['z'])).T
+
+        # Use DBSCAN to find clusters
+        db = DBSCAN(eps=0.05, min_samples=self.min_points_obstacle).fit(points)
+        labels = db.labels_
+
+        # Number of clusters in labels, ignoring noise if present.
+        unique_labels = set(labels)
+        unique_labels.discard(-1)  # Discard noise label if present
+
+        centroids = []
+        for k in unique_labels:
+            class_member_mask = (labels == k)
+            cluster = points[class_member_mask]
+            centroid = np.mean(cluster, axis=0)
+            centroids.append(centroid)
+
+        return np.array(centroids)
+
+    def publish_centroids(self, centroids):
+        if centroids.size == 0:
+            return
+
+        header = rospy.Header()
+        header.stamp = rospy.Time.now()
+        header.frame_id = self.robot_frame
+
+        fields = [
+            PointField('x', 0, PointField.FLOAT32, 1),
+            PointField('y', 4, PointField.FLOAT32, 1),
+            PointField('z', 8, PointField.FLOAT32, 1)
+        ]
+
+        centroid_cloud = PointCloud2()
+        centroid_cloud.fields = fields
+        centroid_cloud.data = centroids
+        centroid_cloud.height = 1
+        centroid_cloud.width = len(centroids)
+        centroid_cloud.header = header
+        self.centroid_pub.publish(centroid_cloud)
 
     def check_clearance(self):
         if self.min_points_obstacle < 1:
@@ -145,7 +182,7 @@ class VirtualBumper(object):
         self.markers_pub.publish(msg)
         t = timer() - t
         rospy.logdebug(f'Publish clearance: {t:.3f} s.')
-
+    
     def publish_obstacle_cloud(self, cloud):
         t = timer()
         cloud = msgify(PointCloud2, cloud)
@@ -160,6 +197,11 @@ class VirtualBumper(object):
 
         # Check clearance.
         free, obstacle_cloud = self.check_clearance()
+
+        # Compute and publish centroids if there are obstacles
+        if obstacle_cloud is not None:
+            centroids = self.compute_centroids(obstacle_cloud)
+            self.publish_centroids(centroids)
 
         # Pass through or stop.
         if free:
