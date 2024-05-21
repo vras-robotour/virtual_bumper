@@ -18,11 +18,11 @@ from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 class VirtualBumper(object):
     def __init__(self):
         self.robot_frame = rospy.get_param("~robot_frame", "base_link")
-        self.max_age = rospy.get_param("~max_age", 1.0)
         clearance_box = rospy.get_param("~clearance_box", [[-0.6, 0.6], [-0.5, 0.5], [ 0.0, 0.8]])
         self.clearance_box = np.array(clearance_box)
         self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 1)
         self.keep_clouds = int(rospy.get_param("~keep_clouds", 1))
+        self.cloud_max_delay = rospy.get_param("~cloud_max_delay", 0.6)
         
         self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 20)
         self.robot_length = rospy.get_param("~robot_length", 0.8)
@@ -43,6 +43,9 @@ class VirtualBumper(object):
         self.cmd_sub = rospy.Subscriber("input_cmd_vel", Twist, self.receive_cmd, queue_size=2)
         self.cloud_sub = rospy.Subscriber("input_cloud", PointCloud2, self.receive_cloud, queue_size=2)
 
+    def msg_delay(self, msg):
+        return (rospy.Time.now() - msg.header.stamp).to_sec()
+
     def transform_cloud(self, msg):
         transform = self.tf_buffer.lookup_transform(self.robot_frame, msg.header.frame_id, rospy.Time(0))
         msg_out = do_transform_cloud(msg, transform)
@@ -59,17 +62,16 @@ class VirtualBumper(object):
         return filtered_cloud
 
     def receive_cloud(self, msg):
+        time_delay = self.msg_delay(msg)
+        if time_delay > self.cloud_max_delay:
+            rospy.logwarn(f"Discarding cloud with delay: {time_delay:.3f} s.")
+            return
+
         t = timer()
         if msg.header.frame_id != self.robot_frame:
             msg = self.transform_cloud(msg)
-        
         assert isinstance(msg, PointCloud2)
-        assert msg.header.frame_id == self.robot_frame
 
-        age = (rospy.Time.now() - msg.header.stamp).to_sec()
-        # if age > self.max_age:
-        #     rospy.logwarn("Discarding cloud %.1f s > %.1f s old.", age, self.max_age)
-        #     return
         cloud = numpify(msg).ravel()
         if cloud is not None:
             cloud = self.filter_cloud(cloud)
@@ -106,7 +108,7 @@ class VirtualBumper(object):
         return obstacle_cloud
     
     def calculate_centroids(self, cloud):
-        points = np.hstack((cloud['x'], cloud['y'], cloud['z']))
+        points = np.vstack((cloud['x'], cloud['y'], cloud['z']))
         centroids = []
         # Clustering using distance threshold.
         threshold = 0.35

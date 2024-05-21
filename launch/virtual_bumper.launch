@@ -55,6 +55,5 @@
         <!-- Outputs -->
         <remap from="output_cmd_vel" to="$(arg out_cmd_vel)"/>
         <remap from="obstacle_cloud" to="$(arg obstacle_cloud)"/>
-	<remap from="~markers" to="~/$(arg markers)"/>
     </node>
 </launch>
