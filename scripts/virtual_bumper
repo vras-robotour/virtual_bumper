@@ -234,40 +234,44 @@ class VirtualBumper(object):
         t = timer() - t
         rospy.logdebug(f'Publish obstacle cloud: {t:.3f} s.')
 
+    def is_moving(self, msg):
+        return msg.linear.x != 0 or msg.angular.z != 0
+
     def receive_cmd(self, msg):
         assert isinstance(msg, Twist)
 
-        # Check clearance.
-        infeas_dircs, obstacle_cloud = self.check_clearance()
-        rospy.loginfo(f"Infeasible directions: {infeas_dircs}")
-        
-        free = not np.any(infeas_dircs)
+        if self.is_moving(msg):
+            # Check clearance.
+            infeas_dircs, obstacle_cloud = self.check_clearance()
+            rospy.loginfo(f"Infeasible directions: {infeas_dircs}")
+            
+            free = not np.any(infeas_dircs)
 
-        # Publish clearance markers.
-        self.publish_clearance_marker(free)
-        if obstacle_cloud is not None:
-            self.publish_obstacle_cloud(obstacle_cloud)
+            # Publish clearance markers.
+            self.publish_clearance_marker(free)
+            if obstacle_cloud is not None:
+                self.publish_obstacle_cloud(obstacle_cloud)
 
-        # Check if velocity is feasible.
-        vel_x = msg.linear.x
-        vel_ang = msg.angular.z
+            # Check if velocity is feasible.
+            vel_x = msg.linear.x
+            vel_ang = msg.angular.z
 
-        if infeas_dircs[0] and vel_x > 0:
-            vel_x = 0
-            rospy.logwarn("Blocked by obstacle in front.")
-        if infeas_dircs[1] and vel_x < 0:
-            vel_x = 0
-            rospy.logwarn("Blocked by obstacle in back.")
-        if infeas_dircs[2] and vel_ang > 0:
-            vel_ang = 0
-            rospy.logwarn("Blocked by obstacle on left.")
-        if infeas_dircs[3] and vel_ang < 0:
-            vel_ang = 0
-            rospy.logwarn("Blocked by obstacle on right")
-        
-        msg.linear.x = vel_x
-        msg.angular.z = vel_ang
-        self.cmd_pub.publish(msg)
+            if infeas_dircs[0] and vel_x > 0:
+                vel_x = 0
+                rospy.logwarn("Blocked by obstacle in front.")
+            if infeas_dircs[1] and vel_x < 0:
+                vel_x = 0
+                rospy.logwarn("Blocked by obstacle in back.")
+            if infeas_dircs[2] and vel_ang > 0:
+                vel_ang = 0
+                rospy.logwarn("Blocked by obstacle on left.")
+            if infeas_dircs[3] and vel_ang < 0:
+                vel_ang = 0
+                rospy.logwarn("Blocked by obstacle on right")
+            
+            msg.linear.x = vel_x
+            msg.angular.z = vel_ang
+            self.cmd_pub.publish(msg)
 
 if __name__ == '__main__':
     rospy.init_node('virtual_bumper', log_level=rospy.INFO)
