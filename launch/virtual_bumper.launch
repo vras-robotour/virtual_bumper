@@ -3,28 +3,24 @@
     <arg name="robot" default="spot-3"/><group if="$(eval {'ctu-robot': 0, 'flip': 0, 'marv-robot': 0, 'spot-3': 0}[robot])"/>
     <!-- ctu-robot -->
     <arg name="in_cmd_vel" value="path_follower/cmd_vel" if="$(eval robot == 'ctu-robot')"/>
-    <arg name="clouds_filtered" value="points_filtered" if="$(eval robot == 'ctu-robot')"/>
+    <arg name="clouds_filtered" value="points" if="$(eval robot == 'ctu-robot')"/>
     <arg name="out_cmd_vel" value="cmd_vel" if="$(eval robot == 'ctu-robot')"/>
     <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'ctu-robot')"/>
-    <arg name="markers" value="markers" if="$(eval robot == 'ctu-robot')"/>
     <!-- flip -->
     <arg name="in_cmd_vel" value="TODO" if="$(eval robot == 'flip')"/>
     <arg name="clouds_filtered" value="TODO" if="$(eval robot == 'flip')"/>
     <arg name="out_cmd_vel" value="TODO" if="$(eval robot == 'flip')"/>
     <arg name="obstacle_cloud" value="TODO" if="$(eval robot == 'flip')"/>
-    <arg name="markers" value="markers" if="$(eval robot == 'flip')"/>
     <!-- marv-robot -->
     <arg name="in_cmd_vel" value="marv/cartesian_controller/cmd_vel" if="$(eval robot == 'marv-robot')"/>
     <arg name="clouds_filtered" value="points_filtered_jetson" if="$(eval robot == 'marv-robot')"/>
     <arg name="out_cmd_vel" value="cmd_vel_bumper" if="$(eval robot == 'marv-robot')"/>
     <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'marv-robot')"/>
-    <arg name="markers" value="markers" if="$(eval robot == 'marv-robot')"/>
     <!-- spot-3 -->
     <arg name="in_cmd_vel" value="spot/cmd_vel" if="$(eval robot == 'spot-3')"/>
     <arg name="clouds_filtered" value="points_filtered" if="$(eval robot == 'spot-3')"/>
     <arg name="out_cmd_vel" value="cmd_vel_bumper" if="$(eval robot == 'spot-3')"/>
     <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'spot-3')"/>
-    <arg name="markers" value="markers" if="$(eval robot == 'spot-3')"/>
 
     <node name="virtual_bumper" pkg="virtual_bumper" type="virtual_bumper" 
           respawn="true" respawn_delay="1.0" output="screen">

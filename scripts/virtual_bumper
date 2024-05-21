@@ -9,7 +9,7 @@ import rospy
 from std_msgs.msg import ColorRGBA
 from ros_numpy import msgify, numpify
 from sensor_msgs.msg import PointCloud2
-from geometry_msgs.msg import Twist, Vector3, Point
+from geometry_msgs.msg import Twist, Point
 from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
@@ -21,9 +21,7 @@ class VirtualBumper(object):
     def __init__(self):
         self.robot_frame = rospy.get_param('~robot_frame', 'base_link')
         self.max_age = rospy.get_param('~max_age', 1.0)
-        clearance_box = rospy.get_param('~clearance_box', [[-0.6, 0.6],
-                                                           [-0.5, 0.5],
-                                                           [ 0.0, 0.8]])
+        clearance_box = rospy.get_param('~clearance_box', [[-0.6, 0.6], [-0.5, 0.5], [ 0.0, 0.8]])
         self.clearance_box = np.array(clearance_box)
         self.min_points_obstacle = rospy.get_param('~min_points_obstacle', 1)
         self.keep_clouds = int(rospy.get_param('~keep_clouds', 1))
@@ -43,7 +41,6 @@ class VirtualBumper(object):
         self.cmd_pub = rospy.Publisher('output_cmd_vel', Twist, queue_size=2)
         self.cloud_pub = rospy.Publisher('obstacle_cloud', PointCloud2, queue_size=2)
         self.centroid_pub = rospy.Publisher('obstacle_centroids', MarkerArray, queue_size=2)
-        self.markers_pub = rospy.Publisher('~markers', MarkerArray, queue_size=2)
 
         self.cmd_sub = rospy.Subscriber('input_cmd_vel', Twist, self.receive_cmd, queue_size=2)
         self.cloud_sub = rospy.Subscriber('input_cloud', PointCloud2, self.receive_cloud, queue_size=2)
@@ -55,7 +52,8 @@ class VirtualBumper(object):
         return msg_out
 
     def filter_cloud(self, cloud):
-        valid_indices = ~np.isnan(cloud['x']) & ~np.isnan(cloud['y'])
+        # Filter NaN values and points inside the robot.
+        valid_indices = ~np.isnan(cloud['x']) & ~np.isnan(cloud['y']) & ~np.isnan(cloud['z'])
         cloud = cloud[valid_indices]
 
         mask = ~((np.abs(cloud['x']) < self.robot_length / 2) & (np.abs(cloud['y']) < self.robot_width / 2))
@@ -71,10 +69,9 @@ class VirtualBumper(object):
         assert msg.header.frame_id == self.robot_frame
 
         age = (rospy.Time.now() - msg.header.stamp).to_sec()
-        if False and age > self.max_age:
-            rospy.logwarn('Discarding cloud %.1f s > %.1f s old.', age, self.max_age)
-            return
-
+        # if age > self.max_age:
+        #     rospy.logwarn('Discarding cloud %.1f s > %.1f s old.', age, self.max_age)
+        #     return
         cloud = numpify(msg).ravel()
         if cloud is not None:
             cloud = self.filter_cloud(cloud)
@@ -89,8 +86,7 @@ class VirtualBumper(object):
     def obstacle_cloud(self, cloud):
         obstacles = np.ones(cloud.shape, dtype=bool)
         for i, f in enumerate(('x', 'y', 'z')):
-            obstacles = obstacles & ((cloud[f] >= self.clearance_box[i, 0])
-                                     & (cloud[f] <= self.clearance_box[i, 1]))
+            obstacles = obstacles & ((cloud[f] >= self.clearance_box[i, 0]) & (cloud[f] <= self.clearance_box[i, 1]))
 
         obstacle_cloud = cloud[obstacles]
         return obstacle_cloud
@@ -110,44 +106,10 @@ class VirtualBumper(object):
         
         obstacle_cloud = np.concatenate(obstacle_clouds)
         return obstacle_cloud
-
-    def check_clearance(self):
-        infeas_dircs = np.array([False, False, False, False], dtype=bool)  # [front, back, left, right] 
-        obstacle_cloud = self.full_obstacle_cloud()
-
-        if obstacle_cloud is not None:
-            centroids = self.calculate_centroids(obstacle_cloud)
-            infeas_dircs = self.check_directions(centroids)
-        # rospy.loginfo(f"Infeasible directions are: {infeas_dircs}")
-        return infeas_dircs, obstacle_cloud
-
-    def clearance_ns(self):
-        return f'{self.robot_frame}/clearance'
-
-    def clearance_marker(self, free):
-        marker = Marker()
-        marker.header.frame_id = self.robot_frame
-        marker.header.stamp = rospy.Time.now()
-        marker.ns = self.clearance_ns()
-        marker.id = 0
-        marker.action = Marker.MODIFY
-        marker.type = Marker.CUBE
-        marker.pose.orientation.w = 1.
-        marker.scale = Vector3(*(self.clearance_box[:, 1] - self.clearance_box[:, 0]))
-        if free:
-            marker.color = ColorRGBA(0., 1., 0., 0.25)
-        else:
-            marker.color = ColorRGBA(1., 0., 0., 0.5)
-        marker.frame_locked = True
-        marker.lifetime = rospy.Duration(1.0)
-        return marker
     
     def calculate_centroids(self, cloud):
-        if cloud is None or cloud.size == 0:
-            return []
-        points = np.array([(cloud['x'][i], cloud['y'][i], cloud['z'][i]) for i in range(len(cloud))])
+        points = np.hstack((cloud['x'], cloud['y'], cloud['z']))
         centroids = []
-
         # Clustering using distance threshold.
         threshold = 0.35
         while points.size > 0:
@@ -164,7 +126,6 @@ class VirtualBumper(object):
                 centroid = np.mean(current_cluster, axis=0)
                 centroids.append(centroid)
 
-        self.publish_centroids(centroids)
         return centroids
 
     def get_infeasible_direction(self, x, y):
@@ -194,6 +155,16 @@ class VirtualBumper(object):
             x, y, z = centroid
             infeas_dircs = np.logical_or(infeas_dircs, self.get_infeasible_direction(x, y))
         return infeas_dircs
+    
+    def check_clearance(self):
+        infeas_dircs = None 
+        obstacle_cloud = self.full_obstacle_cloud()
+
+        if obstacle_cloud is not None:
+            centroids = self.calculate_centroids(obstacle_cloud)
+            # self.publish_centroids(centroids)
+            infeas_dircs = self.check_directions(centroids)
+        return infeas_dircs, obstacle_cloud
 
     def publish_centroids(self, centroids):
         t = timer()
@@ -218,13 +189,6 @@ class VirtualBumper(object):
         t = timer() - t
         rospy.logdebug(f'Publish centroids: {t:.3f} s.')
 
-    def publish_clearance_marker(self, free):
-        t = timer()
-        msg = MarkerArray([self.clearance_marker(free)])
-        self.markers_pub.publish(msg)
-        t = timer() - t
-        rospy.logdebug(f'Publish clearance: {t:.3f} s.')
-
     def publish_obstacle_cloud(self, cloud):
         t = timer()
         cloud = msgify(PointCloud2, cloud)
@@ -239,23 +203,20 @@ class VirtualBumper(object):
 
     def receive_cmd(self, msg):
         assert isinstance(msg, Twist)
-
         if self.is_moving(msg):
             # Check clearance.
             infeas_dircs, obstacle_cloud = self.check_clearance()
-            rospy.loginfo(f"Infeasible directions: {infeas_dircs}")
-            
-            free = not np.any(infeas_dircs)
+            if infeas_dircs is not None:
+                rospy.loginfo(f"Infeasible directions: {infeas_dircs}")
+            else:
+                rospy.logwarn("No obstacle clouds available.")
 
-            # Publish clearance markers.
-            self.publish_clearance_marker(free)
             if obstacle_cloud is not None:
                 self.publish_obstacle_cloud(obstacle_cloud)
 
             # Check if velocity is feasible.
             vel_x = msg.linear.x
             vel_ang = msg.angular.z
-
             if infeas_dircs[0] and vel_x > 0:
                 vel_x = 0
                 rospy.logwarn("Blocked by obstacle in front.")
@@ -268,7 +229,6 @@ class VirtualBumper(object):
             if infeas_dircs[3] and vel_ang < 0:
                 vel_ang = 0
                 rospy.logwarn("Blocked by obstacle on right")
-            
             msg.linear.x = vel_x
             msg.angular.z = vel_ang
             self.cmd_pub.publish(msg)
