@@ -250,22 +250,23 @@ class VirtualBumper(object):
 
         # Check if velocity is feasible.
         vel_x = msg.linear.x
-        vel_y = msg.linear.y
+        vel_ang = msg.angular.z
+
         if infeas_dircs[0] and vel_x > 0:
             vel_x = 0
             rospy.logwarn("Blocked by obstacle in front.")
         if infeas_dircs[1] and vel_x < 0:
             vel_x = 0
             rospy.logwarn("Blocked by obstacle in back.")
-        if infeas_dircs[2] and vel_y > 0:
-            vel_y = 0
+        if infeas_dircs[2] and vel_ang > 0:
+            vel_ang = 0
             rospy.logwarn("Blocked by obstacle on left.")
-        if infeas_dircs[3] and vel_y < 0:
-            vel_y = 0
+        if infeas_dircs[3] and vel_ang < 0:
+            vel_ang = 0
             rospy.logwarn("Blocked by obstacle on right")
         
         msg.linear.x = vel_x
-        msg.linear.y = vel_y
+        msg.angular.z = vel_ang
         self.cmd_pub.publish(msg)
 
 if __name__ == '__main__':
