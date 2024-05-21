@@ -1,47 +1,16 @@
 #!/usr/bin/env python
 
 import rospy
-from sensor.msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2
 
 
-class CloudsDelay:
-    def __init__(self):
-        self.cloud_pts = rospy.Subscriber("points", PointCloud2, self.callback, queue_size=2)
-        self.cloud_pts_fil = rospy.Subscriber("points_filtered", PointCloud2, self.callback, queue_size=2)
-        self.cloud_pts_fil_jet = rospy.Subscriber("points_filtered_jetson", PointCloud2, self.callback, queue_size=2)
-
-        self.timestamps = {"points": None, "points_filtered": None, "points_filtered_jetson": None}
-
-    def callback(self, data):
-        topic = data._connection_header["topic"]
-        self.timestamps[topic] = rospy.Time.now().to_sec()
-        
-    def get_delay(self):
-        current_time = rospy.Time.now().to_sec()
-        
-        delays = {}
-        for topic, timestamp in self.timestamps.items():
-            if timestamp is not None:
-                delays[topic] = current_time - timestamp
-            else:
-                delays[topic] = None
-        
-        return delays
-
-
-def main():
-    rospy.init_node("clouds_delay", anonymous=True)
-    clouds_delay = CloudsDelay()
-    
-    rate = rospy.Rate(1)
-    while not rospy.is_shutdown():
-        delays = clouds_delay.get_delay()
-        rospy.loginfo(f"Delays: points: {delays["points"]}, 
-                     points_filtered: {delays["points_filtered"]}, 
-                     points_filtered_jetson: {delays["points_filtered_jetson"]}")
-        rate.sleep()
-    rospy.spin()
+def callback(msg):
+    rospy.logwarn("Received message")
+    rospy.loginfo(f"Delay: {(rospy.Time.now() - msg.header.stamp).to_sec()}")
 
 
 if __name__ == "__main__":
-    main()
+    rospy.init_node("clouds_delay", anonymous=True, log_level=rospy.DEBUG)
+    rospy.Subscriber("/points", PointCloud2, callback)
+    # rospy.Subscriber("/points_filtered", PointCloud2, callback)
+    rospy.spin()
