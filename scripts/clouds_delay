@@ -6,7 +6,7 @@ from sensor_msgs.msg import PointCloud2
 
 def callback(msg):
     rospy.logwarn("Received message")
-    rospy.loginfo(f"Delay: {(rospy.Time.now() - msg.header.stamp).to_sec()}")
+    rospy.loginfo(f"Delay: {round((rospy.Time.now() - msg.header.stamp).to_sec(), 2)} s.")
 
 
 if __name__ == "__main__":
