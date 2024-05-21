@@ -14,21 +14,19 @@ from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 
-np.set_printoptions(precision=2)
-
 
 class VirtualBumper(object):
     def __init__(self):
-        self.robot_frame = rospy.get_param('~robot_frame', 'base_link')
-        self.max_age = rospy.get_param('~max_age', 1.0)
-        clearance_box = rospy.get_param('~clearance_box', [[-0.6, 0.6], [-0.5, 0.5], [ 0.0, 0.8]])
+        self.robot_frame = rospy.get_param("~robot_frame", "base_link")
+        self.max_age = rospy.get_param("~max_age", 1.0)
+        clearance_box = rospy.get_param("~clearance_box", [[-0.6, 0.6], [-0.5, 0.5], [ 0.0, 0.8]])
         self.clearance_box = np.array(clearance_box)
-        self.min_points_obstacle = rospy.get_param('~min_points_obstacle', 1)
-        self.keep_clouds = int(rospy.get_param('~keep_clouds', 1))
+        self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 1)
+        self.keep_clouds = int(rospy.get_param("~keep_clouds", 1))
         
-        self.min_points_obstacle = rospy.get_param('~min_points_obstacle', 20)
-        self.robot_length = rospy.get_param('~robot_length', 0.8)
-        self.robot_width = rospy.get_param('~robot_width', 0.6) 
+        self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 20)
+        self.robot_length = rospy.get_param("~robot_length", 0.8)
+        self.robot_width = rospy.get_param("~robot_width", 0.6) 
 
         self.cloud_lock = RLock()
         self.clouds = [None] * self.keep_clouds
@@ -38,12 +36,12 @@ class VirtualBumper(object):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer)
 
-        self.cmd_pub = rospy.Publisher('output_cmd_vel', Twist, queue_size=2)
-        self.cloud_pub = rospy.Publisher('obstacle_cloud', PointCloud2, queue_size=2)
-        self.centroid_pub = rospy.Publisher('obstacle_centroids', MarkerArray, queue_size=2)
+        self.cmd_pub = rospy.Publisher("output_cmd_vel", Twist, queue_size=2)
+        self.cloud_pub = rospy.Publisher("obstacle_cloud", PointCloud2, queue_size=2)
+        self.centroid_pub = rospy.Publisher("obstacle_centroids", MarkerArray, queue_size=2)
 
-        self.cmd_sub = rospy.Subscriber('input_cmd_vel', Twist, self.receive_cmd, queue_size=2)
-        self.cloud_sub = rospy.Subscriber('input_cloud', PointCloud2, self.receive_cloud, queue_size=2)
+        self.cmd_sub = rospy.Subscriber("input_cmd_vel", Twist, self.receive_cmd, queue_size=2)
+        self.cloud_sub = rospy.Subscriber("input_cloud", PointCloud2, self.receive_cloud, queue_size=2)
 
     def transform_cloud(self, msg):
         transform = self.tf_buffer.lookup_transform(self.robot_frame, msg.header.frame_id, rospy.Time(0))
@@ -52,11 +50,11 @@ class VirtualBumper(object):
         return msg_out
 
     def filter_cloud(self, cloud):
-        # Filter NaN values and points inside the robot.
+        # Filter NaN values.
         valid_indices = ~np.isnan(cloud['x']) & ~np.isnan(cloud['y']) & ~np.isnan(cloud['z'])
         cloud = cloud[valid_indices]
-
-        mask = ~((np.abs(cloud['x']) < self.robot_length / 2) & (np.abs(cloud['y']) < self.robot_width / 2))
+        # Filter points inside robot.
+        mask = ~((np.abs(cloud['x']) < self.robot_length/2) & (np.abs(cloud['y']) < self.robot_width/2))
         filtered_cloud = cloud[mask]
         return filtered_cloud
 
@@ -70,7 +68,7 @@ class VirtualBumper(object):
 
         age = (rospy.Time.now() - msg.header.stamp).to_sec()
         # if age > self.max_age:
-        #     rospy.logwarn('Discarding cloud %.1f s > %.1f s old.', age, self.max_age)
+        #     rospy.logwarn("Discarding cloud %.1f s > %.1f s old.", age, self.max_age)
         #     return
         cloud = numpify(msg).ravel()
         if cloud is not None:
@@ -81,7 +79,7 @@ class VirtualBumper(object):
             self.clouds[i] = cloud
             self.i_cloud += 1
         t = timer() - t
-        rospy.logdebug(f'{cloud.size} points received in slot {i} ({t:.3f} s).')
+        rospy.logdebug(f"{cloud.size} points received in slot {i} ({t:.3f} s).")
 
     def obstacle_cloud(self, cloud):
         obstacles = np.ones(cloud.shape, dtype=bool)
@@ -96,7 +94,7 @@ class VirtualBumper(object):
         with self.cloud_lock:
             for cloud in self.clouds:
                 if cloud is None:
-                    rospy.logwarn_throttle(1.0, 'Missing input clouds to check clearance.')
+                    rospy.logwarn_throttle(1.0, "Missing input clouds to check clearance.")
                     continue
                 obstacle_cloud = self.obstacle_cloud(cloud)
                 obstacle_clouds.append(obstacle_cloud)
@@ -173,7 +171,7 @@ class VirtualBumper(object):
             marker = Marker()
             marker.header.frame_id = self.robot_frame
             marker.header.stamp = rospy.Time.now()
-            marker.ns = 'centroids'
+            marker.ns = "centroids"
             marker.id = i
             marker.type = Marker.SPHERE
             marker.action = Marker.ADD
@@ -187,7 +185,7 @@ class VirtualBumper(object):
             marker_array.markers.append(marker)
         self.centroid_pub.publish(marker_array)
         t = timer() - t
-        rospy.logdebug(f'Publish centroids: {t:.3f} s.')
+        rospy.logdebug(f"Publish centroids: {t:.3f} s.")
 
     def publish_obstacle_cloud(self, cloud):
         t = timer()
@@ -196,7 +194,7 @@ class VirtualBumper(object):
         cloud.header.stamp = rospy.Time.now()
         self.cloud_pub.publish(cloud)
         t = timer() - t
-        rospy.logdebug(f'Publish obstacle cloud: {t:.3f} s.')
+        rospy.logdebug(f"Publish obstacle cloud: {t:.3f} s.")
 
     def is_moving(self, msg):
         return msg.linear.x != 0 or msg.angular.z != 0
@@ -233,7 +231,8 @@ class VirtualBumper(object):
             msg.angular.z = vel_ang
             self.cmd_pub.publish(msg)
 
-if __name__ == '__main__':
-    rospy.init_node('virtual_bumper', log_level=rospy.INFO)
+
+if __name__ == "__main__":
+    rospy.init_node("virtual_bumper", log_level=rospy.INFO)
     node = VirtualBumper()
     rospy.spin()
