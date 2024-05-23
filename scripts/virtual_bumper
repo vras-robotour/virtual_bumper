@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import absolute_import, division, print_function
-import sys
+
 import numpy as np
 from threading import RLock
 from timeit import default_timer as timer
@@ -18,99 +18,158 @@ from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 
 class VirtualBumper(object):
     def __init__(self):
-        self.robot_frame = rospy.get_param("~robot_frame", "base_link")
-        clearance_box = rospy.get_param("~clearance_box", [[-0.6, 0.6], [-0.5, 0.5], [ 0.0, 0.8]])
-        self.clearance_box = np.array(clearance_box)
-        self.keep_clouds = int(rospy.get_param("~keep_clouds", 1))
-        self.cloud_max_delay = rospy.get_param("~cloud_max_delay", 2)
-        
-        self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 20)
+        self.robot_width = rospy.get_param("~robot_width", 0.6)
         self.robot_length = rospy.get_param("~robot_length", 0.8)
-        self.robot_width = rospy.get_param("~robot_width", 0.6) 
+        self.robot_frame = rospy.get_param("~robot_frame", "base_link")
+        self.clearance_box = np.array(rospy.get_param("~clearance_box", [[-0.6, 0.6], [-0.5, 0.5], [ 0.0, 0.8]]))
+        self.cloud_max_delay = rospy.get_param("~cloud_max_delay", 2)
+        self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 20)
+        self.debug = rospy.get_param("~debug", False)
 
+        self.cloud = None
         self.cloud_lock = RLock()
-        self.clouds = [None] * self.keep_clouds
-        self.i_cloud = 0
-        self.blocked = False
 
-        self.time_start = None
+        self.infeasible_directions = dict(front=False, back=False, left=False, right=False)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer)
 
+        self.cmd_sub = rospy.Subscriber("input_cmd_vel", Twist, self.receive_cmd_cb, queue_size=1, buff_size=40)
+        self.cloud_sub = rospy.Subscriber("input_cloud", PointCloud2, self.receive_cloud_cb, queue_size=1, buff_size=2621473)
+
         self.cmd_pub = rospy.Publisher("output_cmd_vel", Twist, queue_size=1)
-        self.cloud_pub = rospy.Publisher("obstacle_cloud", PointCloud2, queue_size=1)
-        self.centroid_pub = rospy.Publisher("obstacle_centroids", MarkerArray, queue_size=1)
 
-        self.cmd_sub = rospy.Subscriber("input_cmd_vel", Twist, self.receive_cmd, queue_size=1)
-        self.cloud_sub = rospy.Subscriber("input_cloud", PointCloud2, self.receive_cloud, queue_size=1, buff_size=2621473)
+        if self.debug:
+            self.cloud_pub = rospy.Publisher("obstacle_cloud", PointCloud2, queue_size=1)
+            self.centroid_pub = rospy.Publisher("obstacle_centroids", MarkerArray, queue_size=1)
 
-    def msg_delay(self, msg):
-        self.msg_header_time = msg.header.stamp
-        return (rospy.Time.now() - msg.header.stamp).to_sec()
+    def receive_cloud_cb(self, msg: PointCloud2):
+        assert isinstance(msg, PointCloud2)
 
-    def transform_cloud(self, msg):
+        # Discard cloud if delay is too high.
+        time_delay = msg_delay(msg)
+        if time_delay > self.cloud_max_delay:
+            rospy.logdebug(f"Discarding cloud with delay: {time_delay:.3f} s.")
+            return
+
+        rospy.logdebug(f"Received cloud with delay: {time_delay:.3f} s.")
+
+        # Make sure the cloud is in the robot frame.
+        if msg.header.frame_id != self.robot_frame:
+            msg = self._transform_cloud(msg)
+
+        # Convert to numpy array.
+        cloud = numpify(msg).ravel()
+
+        # Filter cloud and compute infeasible directions.
+        if cloud is not None:
+            cloud = self._filter_cloud(cloud)
+            # self.infeasible_directions, _ = self.check_clearance()
+        else:
+            rospy.logwarn("Received empty cloud.")
+            return
+
+        with self.cloud_lock:
+            self.cloud = cloud
+
+    def receive_cmd_cb(self, msg: Twist):
+        time_start = rospy.Time.now()
+        if is_robot_moving(msg):
+            # Look for the obstacle in the point cloud and update infeasible directions.
+            self.check_clearance()
+
+            # Check if the robot is blocked in any direction.
+            if self.infeasible_directions['front'] and msg.linear.x > 0:
+                msg.linear.x = 0
+                rospy.logwarn("Blocked by obstacle in front.")
+            if self.infeasible_directions['back'] and msg.linear.x < 0:
+                msg.linear.x = 0
+                rospy.logwarn("Blocked by obstacle in back.")
+            if self.infeasible_directions['left'] and msg.angular.z > 0:
+                msg.angular.z = 0
+                rospy.logwarn("Blocked by obstacle on left.")
+            if self.infeasible_directions['right'] and msg.angular.z < 0:
+                msg.angular.z = 0
+                rospy.logwarn("Blocked by obstacle on right")
+
+            self.cmd_pub.publish(msg)
+
+            rospy.logdebug(f"Computational time of the Receive CMD callback: {(rospy.Time.now() - time_start).to_sec()}")
+
+    def check_clearance(self):
+        obstacle_cloud = self._full_obstacle_cloud()
+
+        if obstacle_cloud is not None:
+            centroids = self._calculate_centroids(obstacle_cloud)
+            self._update_infeasible_directions(centroids)
+
+            if self.debug:
+                self.publish_centroids(centroids)
+                self.publish_obstacle_cloud(obstacle_cloud)
+
+    def _transform_cloud(self, msg: PointCloud2) -> PointCloud2:
         transform = self.tf_buffer.lookup_transform(self.robot_frame, msg.header.frame_id, rospy.Time(0))
         msg_out = do_transform_cloud(msg, transform)
         msg_out.header.stamp = msg.header.stamp
         return msg_out
 
-    def filter_cloud(self, cloud):
+    def _filter_cloud(self, cloud: np.ndarray) -> np.ndarray:
         # Filter NaN values.
         valid_indices = ~np.isnan(cloud['x']) & ~np.isnan(cloud['y']) & ~np.isnan(cloud['z'])
         cloud = cloud[valid_indices]
+
         # Filter points inside robot.
         mask = ~((np.abs(cloud['x']) < self.robot_length/2) & (np.abs(cloud['y']) < self.robot_width/2))
         filtered_cloud = cloud[mask]
         return filtered_cloud
 
-    def receive_cloud(self, msg):
-        self.time_start = rospy.Time.now()
-        time_delay = self.msg_delay(msg)
-        if False and time_delay > self.cloud_max_delay:
-            rospy.logwarn(f"Discarding cloud with delay: {time_delay:.3f} s.")
-            # return
-
-        t = timer()
-        if msg.header.frame_id != self.robot_frame:
-            msg = self.transform_cloud(msg)
-        assert isinstance(msg, PointCloud2)
-        cloud = numpify(msg).ravel()
-        if cloud is not None:
-            cloud = self.filter_cloud(cloud)
-
+    def _full_obstacle_cloud(self) -> np.ndarray:
+        obstacle_clouds = []
         with self.cloud_lock:
-            i = self.i_cloud % self.keep_clouds
-            self.clouds[i] = cloud
-            self.i_cloud += 1
-        t = timer() - t
-        rospy.logdebug(f"{cloud.size} points received in slot {i} ({t:.3f} s).")
+            if self.cloud is None:
+                return None
 
-    def obstacle_cloud(self, cloud):
+            obstacle_cloud = self._obstacle_cloud(self.cloud)
+            obstacle_clouds.append(obstacle_cloud)
+
+        if not obstacle_clouds:
+            return None
+
+        obstacle_cloud = np.concatenate(obstacle_clouds)
+        return obstacle_cloud
+
+    def _obstacle_cloud(self, cloud: np.ndarray) -> np.ndarray:
         obstacles = np.ones(cloud.shape, dtype=bool)
         for i, f in enumerate(('x', 'y', 'z')):
             obstacles = obstacles & ((cloud[f] >= self.clearance_box[i, 0]) & (cloud[f] <= self.clearance_box[i, 1]))
 
         obstacle_cloud = cloud[obstacles]
         return obstacle_cloud
-    
-    def full_obstacle_cloud(self):
-        obstacle_clouds = []
-        with self.cloud_lock:
-            for cloud in self.clouds:
-                if cloud is None:
-                    rospy.logwarn_throttle(1.0, "Missing input clouds to check clearance.")
-                    continue
-                obstacle_cloud = self.obstacle_cloud(cloud)
-                obstacle_clouds.append(obstacle_cloud)
 
-        if not obstacle_clouds:
-            return None
-        
-        obstacle_cloud = np.concatenate(obstacle_clouds)
-        return obstacle_cloud
+    def _update_infeasible_directions(self, centroids: list) -> None:
+        self.infeasible_directions = dict(front=False, back=False, left=False, right=False)
+        for centroid in centroids:
+            x, y, _ = centroid
+            if x >= self.robot_length / 2:  # Front section
+                self.infeasible_directions['front'] = True
+                if y > self.robot_width / 2:
+                    self.infeasible_directions['left'] = True
+                elif y < -self.robot_width / 2:
+                    self.infeasible_directions['right'] = True
+            elif x <= -self.robot_length / 2:  # Back section
+                self.infeasible_directions['back'] = True
+                if y > self.robot_width / 2:
+                    self.infeasible_directions['left'] = True
+                elif y < -self.robot_width / 2:
+                    self.infeasible_directions['right'] = True
+            else:  # Middle section
+                if y > self.robot_width / 2:
+                    self.infeasible_directions['left'] = True
+                elif y < -self.robot_width / 2:
+                    self.infeasible_directions['right'] = True
+
     
-    def calculate_centroids(self, cloud):
+    def _calculate_centroids(self, cloud: np.ndarray) -> list:
         points = np.array([(cloud['x'][i], cloud['y'][i], cloud['z'][i]) for i in range(len(cloud))])
         #points = np.vstack((cloud['x'], cloud['y'], cloud['z']))
         centroids = []
@@ -132,45 +191,39 @@ class VirtualBumper(object):
 
         return centroids
 
-    def get_infeasible_direction(self, x, y):
-        infeas_dircs = np.array([False, False, False, False], dtype=bool)  # [front, back, left, right]
-        if x > self.robot_length / 2:     
-            infeas_dircs[0] = True          # (0,1)
-            if y > self.robot_width / 2: 
-                infeas_dircs[2] = True      # (0,0)
-            elif y < -self.robot_width / 2:
-                infeas_dircs[3] = True      # (0,2)
-        elif x < -self.robot_length / 2:
-            infeas_dircs[1] = True          # (2,1)
-            if y > self.robot_width / 2:
-                infeas_dircs[2] = True      # (2,0)
-            elif y < -self.robot_width / 2:
-                infeas_dircs[3] = True      # (2,2)
-        elif x < self.robot_length / 2 and x > -self.robot_length / 2:
-            if y > self.robot_width / 2:    # (1,0)
-                infeas_dircs[2] = True
-            elif y < -self.robot_width / 2: # (1,2)
-                infeas_dircs[3] = True
-        return infeas_dircs
+    # def get_infeasible_direction(self, x: float, y: float):
+    #     infeas_dircs = np.array([False, False, False, False], dtype=bool)  # [front, back, left, right]
+    #     if x >= self.robot_length / 2: # Front section
+    #         # infeas_dircs[0] = True          # (0,1)
+    #         self.infeasible_directions['front'] = True
+    #         if y > self.robot_width / 2:
+    #             # infeas_dircs[2] = True      # (0,0)
+    #             self.infeasible_directions['left'] = True
+    #         elif y < -self.robot_width / 2:
+    #             # infeas_dircs[3] = True      # (0,2)
+    #             self.infeasible_directions['right'] = True
+    #     elif x <= -self.robot_length / 2: # Back section
+    #         # infeas_dircs[1] = True          # (2,1)
+    #         self.infeasible_directions['back'] = True
+    #         if y > self.robot_width / 2:
+    #             # infeas_dircs[2] = True      # (2,0)
+    #             self.infeasible_directions['left'] = True
+    #         elif y < -self.robot_width / 2:
+    #             # infeas_dircs[3] = True      # (2,2)
+    #             self.infeasible_directions['right'] = True
+    #     # elif x < self.robot_length / 2 and x > -self.robot_length / 2: # Middle section
+    #     else: # Middle section
+    #         if y > self.robot_width / 2:    # (1,0)
+    #             # infeas_dircs[2] = True
+    #             self.infeasible_directions['left'] = True
+    #         elif y < -self.robot_width / 2: # (1,2)
+    #             # infeas_dircs[3] = True
+    #             self.infeasible_directions['right'] = True
+    #     return infeas_dircs
 
-    def check_directions(self, centroids):
-        infeas_dircs = np.array([False, False, False, False], dtype=bool)  # [front, back, left, right]
-        for centroid in centroids:
-            x, y, z = centroid
-            infeas_dircs = np.logical_or(infeas_dircs, self.get_infeasible_direction(x, y))
-        return infeas_dircs
-    
-    def check_clearance(self):
-        infeas_dircs = None 
-        obstacle_cloud = self.full_obstacle_cloud()
 
-        if obstacle_cloud is not None:
-            centroids = self.calculate_centroids(obstacle_cloud)
-            # self.publish_centroids(centroids)
-            infeas_dircs = self.check_directions(centroids)
-        return infeas_dircs, obstacle_cloud
 
-    def publish_centroids(self, centroids):
+    def publish_centroids(self, centroids: list) -> None:
         t = timer()
         marker_array = MarkerArray()
         for i, centroid in enumerate(centroids):
@@ -193,7 +246,7 @@ class VirtualBumper(object):
         t = timer() - t
         rospy.logdebug(f"Publish centroids: {t:.3f} s.")
 
-    def publish_obstacle_cloud(self, cloud):
+    def publish_obstacle_cloud(self, cloud: np.ndarray) -> None:
         t = timer()
         cloud = msgify(PointCloud2, cloud)
         cloud.header.frame_id = self.robot_frame
@@ -202,46 +255,12 @@ class VirtualBumper(object):
         t = timer() - t
         rospy.logdebug(f"Publish obstacle cloud: {t:.3f} s.")
 
-    def is_moving(self, msg):
-        return msg.linear.x != 0 or msg.angular.z != 0
 
-    def receive_cmd(self, msg):
-        assert isinstance(msg, Twist)
-        rospy.loginfo(f"Size of input Twist message: {msg.__sizeof__()}")
-        if self.is_moving(msg):
-            time_start = rospy.Time.now()
-            # Check clearance.
-            infeas_dircs, obstacle_cloud = self.check_clearance()
-            if infeas_dircs is not None:
-                rospy.loginfo(f"Infeasible directions: {infeas_dircs}")
-            else:
-                rospy.logwarn("No obstacle clouds available.")
+def msg_delay(msg):
+    return (rospy.Time.now() - msg.header.stamp).to_sec()
 
-            if obstacle_cloud is not None:
-                self.publish_obstacle_cloud(obstacle_cloud)
-
-            # Check if velocity is feasible.
-            vel_x = msg.linear.x
-            vel_ang = msg.angular.z
-            if infeas_dircs[0] and vel_x > 0:
-                vel_x = 0
-                rospy.logwarn("Blocked by obstacle in front.")
-            if infeas_dircs[1] and vel_x < 0:
-                vel_x = 0
-                rospy.logwarn("Blocked by obstacle in back.")
-            if infeas_dircs[2] and vel_ang > 0:
-                vel_ang = 0
-                rospy.logwarn("Blocked by obstacle on left.")
-            if infeas_dircs[3] and vel_ang < 0:
-                vel_ang = 0
-                rospy.logwarn("Blocked by obstacle on right")
-            msg.linear.x = vel_x
-            msg.angular.z = vel_ang
-            self.cmd_pub.publish(msg)
-            time_end = rospy.Time.now()
-            rospy.loginfo(f"Size of output Twist message: {str(asizeof(msg))}")
-            #rospy.loginfo(f"Delay is: {(time_end - time_start).to_sec()}")
-
+def is_robot_moving(msg):
+    return msg.linear.x != 0 or msg.angular.z != 0
 
 if __name__ == "__main__":
     rospy.init_node("virtual_bumper", log_level=rospy.INFO)
