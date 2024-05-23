@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import absolute_import, division, print_function
+import sys
 import numpy as np
 from threading import RLock
 from timeit import default_timer as timer
@@ -20,9 +21,8 @@ class VirtualBumper(object):
         self.robot_frame = rospy.get_param("~robot_frame", "base_link")
         clearance_box = rospy.get_param("~clearance_box", [[-0.6, 0.6], [-0.5, 0.5], [ 0.0, 0.8]])
         self.clearance_box = np.array(clearance_box)
-        self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 1)
         self.keep_clouds = int(rospy.get_param("~keep_clouds", 1))
-        self.cloud_max_delay = rospy.get_param("~cloud_max_delay", 0.6)
+        self.cloud_max_delay = rospy.get_param("~cloud_max_delay", 2)
         
         self.min_points_obstacle = rospy.get_param("~min_points_obstacle", 20)
         self.robot_length = rospy.get_param("~robot_length", 0.8)
@@ -33,17 +33,20 @@ class VirtualBumper(object):
         self.i_cloud = 0
         self.blocked = False
 
+        self.time_start = None
+
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer)
 
-        self.cmd_pub = rospy.Publisher("output_cmd_vel", Twist, queue_size=2)
-        self.cloud_pub = rospy.Publisher("obstacle_cloud", PointCloud2, queue_size=2)
-        self.centroid_pub = rospy.Publisher("obstacle_centroids", MarkerArray, queue_size=2)
+        self.cmd_pub = rospy.Publisher("output_cmd_vel", Twist, queue_size=1)
+        self.cloud_pub = rospy.Publisher("obstacle_cloud", PointCloud2, queue_size=1)
+        self.centroid_pub = rospy.Publisher("obstacle_centroids", MarkerArray, queue_size=1)
 
-        self.cmd_sub = rospy.Subscriber("input_cmd_vel", Twist, self.receive_cmd, queue_size=2)
-        self.cloud_sub = rospy.Subscriber("input_cloud", PointCloud2, self.receive_cloud, queue_size=2)
+        self.cmd_sub = rospy.Subscriber("input_cmd_vel", Twist, self.receive_cmd, queue_size=1)
+        self.cloud_sub = rospy.Subscriber("input_cloud", PointCloud2, self.receive_cloud, queue_size=1, buff_size=2621473)
 
     def msg_delay(self, msg):
+        self.msg_header_time = msg.header.stamp
         return (rospy.Time.now() - msg.header.stamp).to_sec()
 
     def transform_cloud(self, msg):
@@ -62,16 +65,16 @@ class VirtualBumper(object):
         return filtered_cloud
 
     def receive_cloud(self, msg):
+        self.time_start = rospy.Time.now()
         time_delay = self.msg_delay(msg)
-        if time_delay > self.cloud_max_delay:
+        if False and time_delay > self.cloud_max_delay:
             rospy.logwarn(f"Discarding cloud with delay: {time_delay:.3f} s.")
-            return
+            # return
 
         t = timer()
         if msg.header.frame_id != self.robot_frame:
             msg = self.transform_cloud(msg)
         assert isinstance(msg, PointCloud2)
-
         cloud = numpify(msg).ravel()
         if cloud is not None:
             cloud = self.filter_cloud(cloud)
@@ -108,7 +111,8 @@ class VirtualBumper(object):
         return obstacle_cloud
     
     def calculate_centroids(self, cloud):
-        points = np.vstack((cloud['x'], cloud['y'], cloud['z']))
+        points = np.array([(cloud['x'][i], cloud['y'][i], cloud['z'][i]) for i in range(len(cloud))])
+        #points = np.vstack((cloud['x'], cloud['y'], cloud['z']))
         centroids = []
         # Clustering using distance threshold.
         threshold = 0.35
@@ -203,7 +207,9 @@ class VirtualBumper(object):
 
     def receive_cmd(self, msg):
         assert isinstance(msg, Twist)
+        rospy.loginfo(f"Size of input Twist message: {msg.__sizeof__()}")
         if self.is_moving(msg):
+            time_start = rospy.Time.now()
             # Check clearance.
             infeas_dircs, obstacle_cloud = self.check_clearance()
             if infeas_dircs is not None:
@@ -232,6 +238,9 @@ class VirtualBumper(object):
             msg.linear.x = vel_x
             msg.angular.z = vel_ang
             self.cmd_pub.publish(msg)
+            time_end = rospy.Time.now()
+            rospy.loginfo(f"Size of output Twist message: {str(asizeof(msg))}")
+            #rospy.loginfo(f"Delay is: {(time_end - time_start).to_sec()}")
 
 
 if __name__ == "__main__":

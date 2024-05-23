@@ -2,9 +2,9 @@
 <launch>
     <arg name="robot" default="spot-3"/><group if="$(eval {'ctu-robot': 0, 'flip': 0, 'marv-robot': 0, 'spot-3': 0}[robot])"/>
     <!-- ctu-robot -->
-    <arg name="in_cmd_vel" value="path_follower/cmd_vel" if="$(eval robot == 'ctu-robot')"/>
+    <arg name="in_cmd_vel" value="cmd_vel" if="$(eval robot == 'ctu-robot')"/>
     <arg name="clouds_filtered" value="points" if="$(eval robot == 'ctu-robot')"/>
-    <arg name="out_cmd_vel" value="cmd_vel" if="$(eval robot == 'ctu-robot')"/>
+    <arg name="out_cmd_vel" value="nav/cmd_vel" if="$(eval robot == 'ctu-robot')"/>
     <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'ctu-robot')"/>
     <!-- flip -->
     <arg name="in_cmd_vel" value="TODO" if="$(eval robot == 'flip')"/>
