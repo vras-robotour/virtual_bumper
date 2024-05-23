@@ -2,9 +2,11 @@
 
 from __future__ import absolute_import, division, print_function
 
-import numpy as np
 from threading import RLock
 from timeit import default_timer as timer
+
+import numpy as np
+from scipy.spatial import KDTree
 
 import rospy
 from std_msgs.msg import ColorRGBA
@@ -169,7 +171,7 @@ class VirtualBumper(object):
                     self.infeasible_directions['right'] = True
 
     
-    def _calculate_centroids(self, cloud: np.ndarray) -> list:
+    def _calculate_centroids2(self, cloud: np.ndarray) -> list:
         points = np.array([(cloud['x'][i], cloud['y'][i], cloud['z'][i]) for i in range(len(cloud))])
         #points = np.vstack((cloud['x'], cloud['y'], cloud['z']))
         centroids = []
@@ -188,6 +190,30 @@ class VirtualBumper(object):
             if len(current_cluster) > self.min_points_obstacle:
                 centroid = np.mean(current_cluster, axis=0)
                 centroids.append(centroid)
+
+        return centroids
+
+    def _calculate_centroids(self, cloud: np.ndarray) -> list:
+        centroids = []
+        threshold = 0.35
+        points = np.vstack((cloud['x'], cloud['y'], cloud['z'])).T
+
+        kdtree = KDTree(points)
+        visited = np.zeros(len(points), dtype=bool)
+
+        for idx in range(len(points)):
+            if visited[idx]:
+                continue
+
+            # Find all points within the threshold distance of the current point
+            indices = kdtree.query_ball_point(points[idx], threshold)
+
+            if len(indices) > self.min_points_obstacle:
+                current_cluster = points[indices]
+                centroid = np.mean(current_cluster, axis=0)
+                centroids.append(centroid)
+
+                visited[indices] = True
 
         return centroids
 
