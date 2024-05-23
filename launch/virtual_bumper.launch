@@ -4,7 +4,7 @@
     <!-- ctu-robot -->
     <arg name="in_cmd_vel" value="cmd_vel" if="$(eval robot == 'ctu-robot')"/>
     <arg name="clouds_filtered" value="points" if="$(eval robot == 'ctu-robot')"/>
-    <arg name="out_cmd_vel" value="nav/cmd_vel" if="$(eval robot == 'ctu-robot')"/>
+    <arg name="out_cmd_vel" value="nav/cmd_vel_bumper" if="$(eval robot == 'ctu-robot')"/>
     <arg name="obstacle_cloud" value="obstacle_cloud" if="$(eval robot == 'ctu-robot')"/>
     <!-- flip -->
     <arg name="in_cmd_vel" value="TODO" if="$(eval robot == 'flip')"/>
