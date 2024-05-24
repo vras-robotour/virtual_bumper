@@ -13,7 +13,6 @@ We provide a node that takes in a point cloud and a velocity command and outputs
 The package was developed and tested on Ubuntu 20.04 with ROS Noetic and should work with other versions of ROS as well.
 
 ## How to use
-
 The script can be run either with the `rosrun` command or as an executable. However we would recommend launching it with a provided launch file. The launch file will set the parameters for the script and launch the node. With the launch file you can also change the topic of the incoming point cloud, input command velocity as well as the output command velocity. The launch file is located in the `./launch/` directory. The launch file has two arguments:
 - `robot_name` - the name of the robot, we consider four different robots: `ctu-robot`, `flip`, `marv-robot`, and `spot`, the script will use the default parameters and correct topic names for the selected robot
 - `debug` - if true, the script will publish the obstacle point cloud with the centroids of the obstacles, default is false
