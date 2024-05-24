@@ -3,6 +3,7 @@ ROS tools to prevent robot from hitting obstacles.
 
 - [Overview](#overview)
 - [How to use](#how-to-use)
+- [License](#license)
 
 ## Overview
 This is a ROS package that provides a virtual bumper for a robot. The virtual bumper is a safety feature that prevents the robot from hitting obstacles by stopping the robot if it is close to an obstacle. 
@@ -19,7 +20,7 @@ The script can be run either with the `rosrun` command or as an executable. Howe
 
 To launch the script with the launch file, run the following command:
 ```bash
-roslaunch virtual_bumper virtual_bumper.launch robot:=robot_name debug:=true
+roslaunch virtual_bumper virtual_bumper.launch robot:=<robot_name> debug:=true
 ```
 
 The script takes several parameters from the ROS parameter server:
@@ -32,4 +33,5 @@ The script takes several parameters from the ROS parameter server:
 - `~debug`- if true, the script will publish the obstacle point cloud with the centroids of the obstacles, default is false
 
 ## License
+[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://github.com/vras-robotour/virtual_bumper/blob/master/LICENSE)
 
